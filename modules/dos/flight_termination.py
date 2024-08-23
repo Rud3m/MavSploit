@@ -9,7 +9,7 @@ class FlightTermination(Module):
     config = Config({
         Option(
             name='target_ip',
-            description='IP range of the network you want to scan',
+            description='IP of your target drone',
             required=True,
             ): "10.13.0.3", # Default value
         Option(
