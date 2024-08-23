@@ -10,5 +10,5 @@
 git clone https://github.com/Rud3m/MavSploit.git
 cd MavSploit
 pip3 install -r requirements.txt
+python main.py
 ```
-
