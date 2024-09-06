@@ -7,7 +7,7 @@
 # Installation 
 
 ```
-git clone https://github.com/nicholasaleks/MavSploit.git
+git clone https://github.com/Rud3m/MavSploit.git
 cd MavSploit
 sudo pipenv install
 sudo pipenv shell
