@@ -11,7 +11,7 @@ git clone https://github.com/Rud3m/MavSploit.git
 cd MavSploit
 sudo pipenv install
 sudo pipenv shell
-python main.py
+python mavsploit.py
 ```
 
 # Connection Types
@@ -138,7 +138,7 @@ run
 
 ```bash
 # Start MavSploit
-python main.py
+python mavsploit.py
 
 # Select GPS spoofing module
 use spoofing/gps_spoofing
@@ -159,7 +159,7 @@ run
 
 ```bash
 # Start MavSploit
-python main.py
+python mavsploit.py
 
 # Select parameter extraction module
 use exfil/param_extractor
@@ -225,7 +225,7 @@ sudo usermod -a -G dialout $USER
 
 # Or run with sudo
 sudo pipenv shell
-python main.py
+python mavsploit.py
 ```
 
 **"Port not found" error**:
