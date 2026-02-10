@@ -1,1 +1,6 @@
 *.pyc
+mavlink_logs/
+
+# Claude Code internal files and directories
+.claude/
+CLAUDE.md

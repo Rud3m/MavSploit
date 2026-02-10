@@ -1,44 +1,32 @@
-from sploitkit import Module, Config, Option
+from sploitkit import Config, Option
+from lib.base import MAVLinkModule
 from pymavlink import mavutil
 import json
 import os
 
-class MavlinkParameterExtractor(Module):
-    """Mavlink Parameter Extractor - Extracts and saves all parameters from a Mavlink-enabled device."""
+class MavlinkParameterExtractor(MAVLinkModule):
+    """
+    Mavlink Parameter Extractor - Extracts and saves all parameters from a Mavlink-enabled device.
 
-    # Configuration for the module
-    config = Config({
-        Option(
-            name='target_ip',
-            description='IP address of the Mavlink device',
-            required=True,
-        ): "192.168.1.1",  # Default value
-        Option(
-            name='target_port',
-            description='Port number of the Mavlink device',
-            required=True,
-        ): "14550",  # Default value
-        Option(
-            name='protocol',
-            description='Connection protocol (udp/tcp)',
-            required=True,
-        ): "udp",  # Default value
+    Connection:
+        Supports both network and serial connections:
+        - Network: udp:192.168.1.1:14550 or tcp:192.168.1.1:5760
+        - Serial: /dev/ttyUSB0 (Linux) or COM3 (Windows)
+
+    Usage:
+        set connection udp:192.168.1.1:14550
+        set save_path ./drone_params.json
+        run
+    """
+
+    # Inherit connection config from base class and add module-specific options
+    config = MAVLinkModule.config + Config({
         Option(
             name='save_path',
             description='Path to save the extracted parameters (as JSON)',
             required=False,
         ): "./mavlink_parameters.json",  # Default value
     })
-
-    def connect_drone(self, target_ip, target_port, protocol):
-        """
-        Establish a connection to the drone.
-        """
-        connection_string = f'{protocol}:{target_ip}:{target_port}'
-        master = mavutil.mavlink_connection(connection_string)
-        master.wait_heartbeat()
-        self.logger.info("Connected to the drone.")
-        return master
 
     def extract_parameters(self, master):
         """
@@ -78,20 +66,23 @@ class MavlinkParameterExtractor(Module):
 
     def run(self):
         # Retrieve configuration options
-        target_ip = self.config['target_ip']
-        target_port = self.config['target_port']
-        protocol = self.config['protocol']
         save_path = self.config['save_path']
 
         # Ensure the directory for the save path exists
-        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        save_dir = os.path.dirname(save_path)
+        if save_dir:
+            os.makedirs(save_dir, exist_ok=True)
 
-        # Connect to the Mavlink device
-        master = self.connect_drone(target_ip, target_port, protocol)
+        # Connect to the Mavlink device (supports both serial and network)
+        master = self.connect_drone()
 
-        # Extract parameters from the device
-        parameters = self.extract_parameters(master)
+        try:
+            # Extract parameters from the device
+            parameters = self.extract_parameters(master)
 
-        # Save the parameters to a file
-        self.save_parameters_to_file(parameters, save_path)
+            # Save the parameters to a file
+            self.save_parameters_to_file(parameters, save_path)
+        finally:
+            # Clean up connection
+            self.close_connection(master)
 

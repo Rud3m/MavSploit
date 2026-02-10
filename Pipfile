@@ -4,7 +4,7 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-sploitkit = ">=0.5.8"
+sploitkit = "*"
 pymavlink = "*"
 mavproxy = "*"
 scapy = "*"
@@ -12,4 +12,4 @@ scapy = "*"
 [dev-packages]
 
 [requires]
-python_version = "3.11"
+python_version = "3.13"
